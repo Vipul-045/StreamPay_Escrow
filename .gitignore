@@ -1,0 +1,41 @@
+# Build artifacts
+target/
+Cargo.lock
+
+# IDE files
+.vscode/
+.idea/
+
+# Environment files
+.env
+.env.local
+.env.deployed
+
+# Generated files
+deployment.json
+hybrid_escrow_abi.json
+subscription_*.json
+topup_*.json
+cancellation_*.json
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Logs
+*.log
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

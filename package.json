@@ -1,0 +1,38 @@
+{
+  "name": "hybrid-escrow-contract",
+  "version": "1.0.0",
+  "description": "Hybrid Escrow Recurring Payments Contract for Arbitrum Stylus",
+  "main": "scripts/deploy.js",
+  "scripts": {
+    "build": "cargo build --release",
+    "deploy": "node scripts/deploy.js",
+    "create-sub": "node scripts/create-subscription.js",
+    "release-loop": "node scripts/release-loop.js",
+    "topup": "node scripts/topup.js",
+    "cancel": "node scripts/cancel.js",
+    "test": "cargo test",
+    "abi": "cargo run --features export-abi > hybrid_escrow_abi.json",
+    "demo": "npm run deploy && npm run create-sub && npm run release-loop"
+  },
+  "keywords": [
+    "blockchain",
+    "arbitrum",
+    "stylus",
+    "recurring-payments",
+    "escrow",
+    "ethereum",
+    "smart-contract"
+  ],
+  "author": "MVP Team",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mvp-team/hybrid-escrow-contract"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "dotenv": "^17.2.1"
+  }
+}
