@@ -1,8 +1,7 @@
-//! Hybrid Escrow Recurring Payments Contract with Gelato Automation
+//! Hybrid Escrow Recurring Payments Contract
 //! 
 //! Features:
 //! - Subscription management
-//! - Gelato keeper integration for auto-renewal
 //! - Block-based payment intervals
 //! - ETH escrow handling
 
@@ -35,26 +34,15 @@ sol_storage! {
         // Escrow balances for each user
         mapping(address => uint256) escrow_balances;
         
-        // Gelato automation
-        address gelato_automate;
-        mapping(address => bytes32) gelato_task_ids;
-        
         // Contract stats
         uint256 total_payments;
         uint256 last_processed_block;
         
-        // Subscriber list for automation
+        // Subscriber list
         address[] subscribers;
         mapping(address => uint256) subscriber_indices;
     }
 }
-
-// Gelato Automate address on Arbitrum (simplified for demo)
-const GELATO_AUTOMATE: Address = Address::new([
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x2A, 0x6C, 0x10, 0x6a,
-    0xe1, 0x3B, 0x55, 0x8B
-]);
 
 #[public]
 impl HybridEscrowContract {
@@ -68,9 +56,6 @@ impl HybridEscrowContract {
         self.initialized.set(true);
         self.total_payments.set(U256::from(0));
         self.last_processed_block.set(U256::from(self.vm().block_number()));
-        
-        // Set Gelato Automate address
-        self.gelato_automate.set(GELATO_AUTOMATE);
         
         Ok(())
     }
@@ -113,7 +98,7 @@ impl HybridEscrowContract {
         self.escrow_balances.get(user)
     }
     
-        // Create a subscription using escrowed funds
+    // Create a subscription using escrowed funds
     pub fn create_subscription(&mut self, amount: U256, interval_blocks: U256) -> Result<(), Vec<u8>> {
         let subscriber = self.vm().msg_sender();
         let current_block = self.vm().block_number();
@@ -176,56 +161,8 @@ impl HybridEscrowContract {
         Ok(())
     }
     
-    // === GELATO AUTOMATION FUNCTIONS ===
-    
-    // Simple checker that just returns if any payment is due
-    pub fn has_due_payments(&self) -> bool {
-        let current_block = U256::from(self.vm().block_number());
-        let subscriber_count = self.subscribers.len();
-        
-        for i in 0..subscriber_count {
-            if let Some(subscriber) = self.subscribers.get(i) {
-                if self.active_subscriptions.get(subscriber) {
-                    let interval = self.subscription_intervals.get(subscriber);
-                    let last_payment = self.last_payment_blocks.get(subscriber);
-                    
-                    if current_block >= last_payment + interval {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
-    
-    // Check if any payments are due (for Gelato resolver)
-    pub fn checker(&self) -> (bool, Vec<u8>) {
-        let current_block = U256::from(self.vm().block_number());
-        
-        // Check all active subscriptions
-        let subscriber_count = self.subscribers.len();
-        for i in 0..subscriber_count {
-            if let Some(subscriber) = self.subscribers.get(i) {
-                if self.active_subscriptions.get(subscriber) {
-                    let interval = self.subscription_intervals.get(subscriber);
-                    let last_payment = self.last_payment_blocks.get(subscriber);
-                    
-                    if current_block >= last_payment + interval {
-                        // Payment is due for this subscriber
-                        let mut call_data = Vec::new();
-                        call_data.extend_from_slice(&[0x8d, 0xa5, 0xcb, 0x5b]); // processPaymentAuto(address) selector
-                        call_data.extend_from_slice(subscriber.as_slice());
-                        return (true, call_data);
-                    }
-                }
-            }
-        }
-        
-        (false, Vec::new())
-    }
-    
-    // Auto-process payment from escrow (called by Gelato)
-    pub fn process_payment_auto(&mut self, subscriber: Address) -> Result<(), Vec<u8>> {
+    // Process payment from escrow manually
+    pub fn process_payment_from_escrow(&mut self, subscriber: Address) -> Result<(), Vec<u8>> {
         // Verify payment is actually due
         if !self.is_payment_due(subscriber) {
             return Err(b"Payment not due".to_vec());
@@ -316,6 +253,28 @@ impl HybridEscrowContract {
         
         // Note: We keep the subscriber in the list but mark as inactive
         // This preserves historical data while preventing future payments
+        
+        Ok(())
+    }
+    
+    // Withdraw remaining escrow balance (for cancelled subscriptions)
+    pub fn withdraw_escrow(&mut self) -> Result<(), Vec<u8>> {
+        let user = self.vm().msg_sender();
+        let balance = self.escrow_balances.get(user);
+        
+        if balance == U256::ZERO {
+            return Err(b"No balance to withdraw".to_vec());
+        }
+        
+        // Clear the balance first (CEI pattern)
+        self.escrow_balances.setter(user).set(U256::ZERO);
+        
+        // Transfer the balance back to user
+        if let Err(_) = self.vm().transfer_eth(user, balance) {
+            // Revert the balance change if transfer fails
+            self.escrow_balances.setter(user).set(balance);
+            return Err(b"Transfer failed".to_vec());
+        }
         
         Ok(())
     }
