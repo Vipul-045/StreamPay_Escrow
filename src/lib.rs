@@ -23,11 +23,17 @@ sol_storage! {
         address owner;
         bool initialized;
         
+        // Provider who receives payments
+        address provider;
+        
         // Subscription data
         mapping(address => uint256) subscription_amounts;
         mapping(address => uint256) subscription_intervals;
         mapping(address => uint256) last_payment_blocks;
         mapping(address => bool) active_subscriptions;
+        
+        // Escrow balances for each user
+        mapping(address => uint256) escrow_balances;
         
         // Gelato automation
         address gelato_automate;
@@ -52,12 +58,13 @@ const GELATO_AUTOMATE: Address = Address::new([
 
 #[public]
 impl HybridEscrowContract {
-    pub fn initialize(&mut self) -> Result<(), Vec<u8>> {
+    pub fn initialize(&mut self, provider_address: Address) -> Result<(), Vec<u8>> {
         if self.initialized.get() {
             return Err(b"Already initialized".to_vec());
         }
         
         self.owner.set(self.vm().msg_sender());
+        self.provider.set(provider_address);
         self.initialized.set(true);
         self.total_payments.set(U256::from(0));
         self.last_processed_block.set(U256::from(self.vm().block_number()));
@@ -72,6 +79,10 @@ impl HybridEscrowContract {
         self.owner.get()
     }
     
+    pub fn provider(&self) -> Address {
+        self.provider.get()
+    }
+    
     pub fn current_block_number(&self) -> u64 {
         self.vm().block_number()
     }
@@ -80,8 +91,29 @@ impl HybridEscrowContract {
         self.total_payments.get()
     }
     
-    // Create a subscription
+    // Deposit funds to escrow for future subscription payments
     #[payable]
+    pub fn deposit_to_escrow(&mut self) -> Result<(), Vec<u8>> {
+        let user = self.vm().msg_sender();
+        let amount = self.vm().msg_value();
+        
+        if amount == U256::ZERO {
+            return Err(b"Must deposit some ETH".to_vec());
+        }
+        
+        // Add to user's escrow balance
+        let current_balance = self.escrow_balances.get(user);
+        self.escrow_balances.setter(user).set(current_balance + amount);
+        
+        Ok(())
+    }
+    
+    // Check user's escrow balance
+    pub fn get_escrow_balance(&self, user: Address) -> U256 {
+        self.escrow_balances.get(user)
+    }
+    
+        // Create a subscription using escrowed funds
     pub fn create_subscription(&mut self, amount: U256, interval_blocks: U256) -> Result<(), Vec<u8>> {
         let subscriber = self.vm().msg_sender();
         let current_block = self.vm().block_number();
@@ -92,6 +124,12 @@ impl HybridEscrowContract {
         
         if interval_blocks == U256::ZERO {
             return Err(b"Interval must be greater than 0".to_vec());
+        }
+        
+        // Check if user has enough escrowed funds for at least one payment
+        let escrow_balance = self.escrow_balances.get(subscriber);
+        if escrow_balance < amount {
+            return Err(b"Insufficient escrow balance".to_vec());
         }
         
         // Add to subscriber list if not already present
@@ -110,7 +148,7 @@ impl HybridEscrowContract {
         Ok(())
     }
     
-    // Process payment for a subscription (called by Gelato or user)
+    // Process payment from escrow (called by user with ETH)
     #[payable]
     pub fn process_payment(&mut self, subscriber: Address) -> Result<(), Vec<u8>> {
         let current_block = self.vm().block_number();
@@ -130,8 +168,8 @@ impl HybridEscrowContract {
         self.last_payment_blocks.setter(subscriber).set(U256::from(current_block));
         self.total_payments.set(self.total_payments.get() + amount);
         
-        // Transfer to owner
-        if let Err(_) = self.vm().transfer_eth(self.owner.get(), amount) {
+        // Transfer to provider
+        if let Err(_) = self.vm().transfer_eth(self.provider.get(), amount) {
             return Err(b"Transfer failed".to_vec());
         }
         
@@ -186,7 +224,7 @@ impl HybridEscrowContract {
         (false, Vec::new())
     }
     
-    // Auto-process payment (called by Gelato)
+    // Auto-process payment from escrow (called by Gelato)
     pub fn process_payment_auto(&mut self, subscriber: Address) -> Result<(), Vec<u8>> {
         // Verify payment is actually due
         if !self.is_payment_due(subscriber) {
@@ -196,12 +234,23 @@ impl HybridEscrowContract {
         let current_block = self.vm().block_number();
         let amount = self.subscription_amounts.get(subscriber);
         
-        // Update payment tracking (without requiring ETH payment for auto)
+        // Check if user has enough escrowed funds
+        let escrow_balance = self.escrow_balances.get(subscriber);
+        if escrow_balance < amount {
+            return Err(b"Insufficient escrow balance".to_vec());
+        }
+        
+        // Deduct from escrow balance
+        self.escrow_balances.setter(subscriber).set(escrow_balance - amount);
+        
+        // Update payment tracking
         self.last_payment_blocks.setter(subscriber).set(U256::from(current_block));
         self.total_payments.set(self.total_payments.get() + amount);
         
-        // For true automation, this would pull from pre-approved allowance
-        // or from escrowed funds. For now, we'll just update the tracking.
+        // Transfer to provider from contract balance
+        if let Err(_) = self.vm().transfer_eth(self.provider.get(), amount) {
+            return Err(b"Transfer to provider failed".to_vec());
+        }
         
         Ok(())
     }
