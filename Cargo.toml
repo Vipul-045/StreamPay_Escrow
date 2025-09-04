@@ -1,22 +1,47 @@
 [package]
-name = "hybrid-escrow-contract"
-version = "1.0.0"
+name = "subscription-engine"
+version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/Akhil-Rawat/MVP"
+repository = "https://github.com/Akhil-Rawat/MVP"
+keywords = ["arbitrum", "ethereum", "stylus", "subscription"]
+description = "Stylus subscription engine smart contract"
 
 [dependencies]
-stylus-sdk = "0.9.0"
 alloy-primitives = "=0.8.20"
 alloy-sol-types = "=0.8.20"
+stylus-sdk = "0.9.0"
+hex = { version = "0.4", default-features = false }
+
+[dev-dependencies]
+alloy-primitives = { version = "=0.8.20", features = ["sha3-keccak"] }
+tokio = { version = "1.12.0", features = ["full"] }
+ethers = "2.0"
+eyre = "0.6.8"
+stylus-sdk = { version = "0.9.0", features = ["stylus-test"] }
+dotenv = "0.15.0"
+
+[features]
+default = ["mini-alloc"]
+export-abi = ["stylus-sdk/export-abi"]
+debug = ["stylus-sdk/debug"]
+mini-alloc = ["stylus-sdk/mini-alloc"]
+
+[[bin]]
+name = "subscription-engine"
+path = "src/main.rs"
 
 [lib]
 crate-type = ["lib", "cdylib"]
 
-[[bin]]
-name = "hybrid-escrow-contract"
-path = "src/main.rs"
-
-[features]
-export-abi = ["stylus-sdk/export-abi"]
-
-[lints.clippy]
-uninlined_format_args = "allow"
+[profile.release]
+codegen-units = 1        # prefer efficiency to compile time
+panic = "abort"          # use simple panics
+opt-level = "z"          # optimize for size ("s" may also work)
+strip = true             # remove debug info
+lto = true               # link time optimization
+debug = false            # no debug data
+rpath = false            # no run-time search path
+debug-assertions = false # prune debug assertions
+incremental = false      # no incremental builds

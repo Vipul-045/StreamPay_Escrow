@@ -6,6 +6,5 @@ pub extern "C" fn main() {}
 
 #[cfg(feature = "export-abi")]
 fn main() {
-    use stylus_sdk::abi::export::print_from_args;
-    print_from_args::<hybrid_escrow_contract::HybridEscrowContract>();
+    subscription_engine::print_from_args();
 }
